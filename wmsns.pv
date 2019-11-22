@@ -1,0 +1,193 @@
+(*--
+This project contains the implementation details of the proposed scheme in "A Lightweight Three-Factor Anonymous Authentication Scheme with Privacy Protection for Personalized Healthcare Applications".
+
+Environmental requirements
+Programs can run under Windows, Linux, and Macs. 
+Install Proverif 1.96, download Address: http://proverif.inria.fr/
+No additional libraries are required. 
+ProVerif is a command-line tool which can be executed using the syntax:
+           ./proverif [options] hfilenamei
+
+Programs can also run online for ProVerif.
+Address: http://proverif16.paris.inria.fr/index.php
+Copy your code to the input box and press the execution key to verify the scheme.
+--*)
+
+
+(*--The two public channel--*)
+free ch1: channel.
+free ch2: channel.
+
+(*--The basic type--*)
+type object.
+type nonce.
+type fingerprint.
+type key.
+type timestamp.
+
+(*--BH operation--*)
+fun BH(bitstring,fingerprint): bitstring.
+
+(*--Hash operation--*) 
+fun Hash(bitstring): bitstring.
+
+(*--XOR operation--*)
+fun XOR(bitstring, bitstring): bitstring.
+equation forall x: bitstring, y: bitstring;
+XOR(XOR(x, y), y) = x.
+
+(*--Concat operation--*)
+fun Con(bitstring, bitstring): bitstring.
+
+(*--Check timestamp Fresh operation--*)
+fun checktimestampfresh(timestamp, bool): bool
+reduc forall T: timestamp;
+checktimestampfresh(T, true) = true
+otherwise forall T: timestamp;
+checktimestampfresh(T, false) = false.
+
+(*--Mod operation--*)
+fun Mod(bitstring, bitstring): bitstring.
+
+(*--Shared key encryption--*)
+fun encrypt(bitstring,key): bitstring.
+reduc forall x: bitstring, y: key;
+decrypt(encrypt(x,y),y) = x.
+
+
+(*--Type convertion--*)
+fun keytobit(key): bitstring   [data,typeConverter].
+fun nontobit(nonce): bitstring [data,typeConverter].
+fun bittokey(bitstring): key   [data,typeConverter].
+fun timetobit(timestamp): bitstring [data,typeConverter].
+
+
+(*--Secrecy assumptions
+not attacker(new K1).
+not attacker(new K2).--*)
+
+(*--The basic variables--*)
+const CVaule: bitstring.
+free professional,GWN,SN: object. (*---three objects in the proposed scheme--*)
+free HID: bitstring.           (*---the professional's pseudonym identity--*)
+free Xi: bitstring[private].   (*---the shared key between professional and GWN--*)
+free K1: bitstring[private].  (*--the shared key between professional and GWN--*)
+free K2: bitstring[private].  (*---the shared key between GWN and the sensor node--*)
+
+
+(*--Authentication queries--*)
+event HGbegin(object).
+event HGend(object).
+event GHbegin(object).
+event GHend(object).
+event GSbegin(object).
+event GSend(object).
+event SGbegin(object).
+event SGend(object).
+
+query x: object; inj-event(HGend(x)) ==> inj-event(HGbegin(x)).
+query x: object; inj-event(GHend(x)) ==> inj-event(GHbegin(x)).
+query x: object; inj-event(GSend(x)) ==> inj-event(GSbegin(x)).
+query x: object; inj-event(SGend(x)) ==> inj-event(SGbegin(x)).
+
+(*--Queries--*)
+free snameA, snameB, snameC, snameD: bitstring [private].
+query attacker(snameA);
+      attacker(snameB);
+      attacker(snameC);
+      attacker(snameD).
+
+(*--Role of the professional with identity IDi and shared key Xi, K1--*)
+let processprofessional(IDi: bitstring, SNj: bitstring, PWi: bitstring, fgi: fingerprint, mi: bitstring, Yi: bitstring, V: bitstring) =
+        let xBi = XOR(Yi, Hash(Con(Con(Con(IDi,PWi),BH(mi,fgi)),mi))) in
+        if xBi = Xi then
+	      let V' = Hash(Con(xBi, Hash(Con(Con(Con(IDi,PWi),BH(mi,fgi)),mi)))) in
+	      if V'=V then	      
+	      event GHbegin(GWN);
+	      new R: nonce;
+	      new T1: timestamp;
+		  let UG = Hash(Con(Con(HID,Xi),K1)) in
+	      let M1 = encrypt(Con(nontobit(R),SNj),bittokey(UG)) in
+	      let CK1 = Hash(Con(Con(Con(Con(Con(IDi,nontobit(R)),xBi),HID),K1),timetobit(T1))) in	 
+(*UO1*) out(ch1, (HID, M1, CK1, T1, true));  
+(*UR1*) in(ch1, (M3:bitstring, CK4:bitstring, T4:timestamp, isTrue: bool));
+          if checktimestampfresh(T4, isTrue) then
+		  let GU=Hash(Con(Con(Con(nontobit(R),HID),xBi),K1)) in
+		  let (SK:key,HIDNEW:bitstring,SIDj:bitstring) = decrypt(M3,bittokey(GU)) in
+	      let CK4' = Hash(Con(Con(Con(IDi,keytobit(SK)),HID),timetobit(T4))) in
+	      if CK4' =CK4 then
+		  (* OK *)	  		  
+    	  let K1=Hash(K1) in
+          let HID=HIDNEW in	
+          event HGend(professional);
+	      out(ch1, encrypt(snameA, SK)).
+
+(*--Role of the GWN with shared key Xi, K1 and K2--*)
+let processGWN(IDi: bitstring, SNj: bitstring) =       
+        in(ch1, (gHID: bitstring, M1: bitstring, CK1: bitstring, T1:timestamp, isTrue: bool));
+        if checktimestampfresh(T1, isTrue) then	
+        event HGbegin(professional);
+	    if gHID = HID then
+        let UG = Hash(Con(Con(gHID,Xi),K1)) in
+		let (R':nonce,gSN:bitstring) = decrypt(M1,bittokey(UG)) in
+        let CK1' = Hash(Con(Con(Con(Con(Con(IDi,nontobit(R')),Xi),gHID),K1),timetobit(T1))) in
+        if CK1'=CK1 && gSN = SNj then
+	      new SK: bitstring;
+	      new T2: timestamp;
+	      event SGbegin(SN);
+	      let M2= XOR(Con(SK,IDi),Hash(Con(K2,SNj))) in
+	      let CK2 = Hash(Con(Con(Con(Con(IDi,SNj),SK),K2),timetobit(T2))) in
+        out(ch2, (M2, CK2, T2, true));
+        in(ch2, (CK3: bitstring, T3: timestamp, isTrue: bool));
+         if checktimestampfresh(T3, isTrue) then
+	      let CK3' = Hash(Con(Con(Con(SNj,IDi),SK),timetobit(T3))) in
+	      if CK3' = CK3 then	  
+	      (* OK *)
+	      event GSend(GWN);
+        out(ch2, encrypt(snameC, bittokey(SK)));
+	      new HIDNEW: bitstring;
+	      new T4: timestamp;
+		  let GU= Hash(Con(Con(Con(nontobit(R'),HID),Xi),K1)) in
+	      let M3 = encrypt(Con(Con(SK,HIDNEW),SNj),bittokey(GU)) in
+	      let CK4 = Hash(Con(Con(Con(IDi,SK),HID),timetobit(T4))) in
+	      let K1=Hash(K1) in
+		  let K2=Hash(K2) in
+          let HID=HIDNEW in	
+        out(ch1, (M3,CK4,T4,true));
+        event GHend(GWN);
+	    (* OK *)     
+	    out(ch1, encrypt(snameB, bittokey(SK))).
+	      	    
+(*--Role of the medical sensor node with identity SNj and shared key K2--*)
+let processSN(SNj:bitstring) = 
+        in(ch2,  (M2: bitstring, CK2:bitstring, T2:timestamp, isTrue:bool));
+        if checktimestampfresh(T2, isTrue) then
+        event GSbegin(GWN);
+	      let (ssk:bitstring, IDi: bitstring) = XOR(M2,Hash(Con(K2,SNj))) in
+	      let CK2'=  Hash(Con(Con(Con(Con(IDi,SNj),ssk),K2),timetobit(T2))) in
+	      if CK2'=CK2 then
+		new T3: timestamp;
+		let CK3= Hash(Con(Con(Con(SNj,IDi),ssk),timetobit(T3))) in
+		let K2=Hash(K2) in
+        out(ch2, (CK3, T3, true)); 
+        event SGend(SN);
+	      (* OK *)
+        out(ch2, encrypt(snameD, bittokey(ssk))).
+		
+(*--Start process--*)
+process
+	new IDi: bitstring; 
+	new PWi: bitstring;
+	new mi: bitstring;
+	new SNj: bitstring; 
+    new fgi: fingerprint;	
+	let Yi = XOR(Xi, Hash(Con(Con(Con(IDi,PWi),BH(mi,fgi)),mi))) in
+	let V = Hash(Con(Xi, Hash(Con(Con(Con(IDi,PWi),BH(mi,fgi)),mi)))) in
+	(
+          (*-- Launch an unbounded number of sessions of the professional --*)
+          (!processprofessional(IDi,SNj,PWi,fgi,mi,Yi,V)) | 
+          (*-- Launch an unbounded number of sessions of the GWN--*)
+          (!processGWN(IDi,SNj)) |
+          (*-- Launch an unbounded number of sessions of the sensor node--*)
+          (!processSN(SNj)) 
+  )

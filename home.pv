@@ -1,0 +1,187 @@
+(*--
+This project contains the implementation details of the proposed scheme in "Anonymous authentication scheme for smart home environment with provable security".
+
+Environmental requirements
+Programs can run under Windows, Linux, and Macs. 
+Install Proverif 1.96, download Address: http://proverif.inria.fr/
+No additional libraries are required. 
+ProVerif is a command-line tool which can be executed using the syntax:
+           ./proverif [options] hfilenamei
+
+Programs can also run online for ProVerif.
+Address: http://proverif16.paris.inria.fr/index.php
+Copy your code to the input box and press the execution key to verify the scheme.
+--*)
+
+(*--The two public channel--*)
+free ch1: channel.
+free ch2: channel.
+
+(*--The basic type--*)
+type entity.
+type nonce.
+type key.
+type integer.
+
+(*--Hash operation--*) 
+fun Hash(bitstring): bitstring.
+
+(*--XOR operation--*)
+fun XOR(bitstring, bitstring): bitstring.
+equation forall x: bitstring, y: bitstring;
+XOR(XOR(x, y), y) = x.
+
+(*--Concat operation--*)
+fun Con(bitstring, bitstring): bitstring.
+
+(*--Scalar multiplication operation--*)
+fun Mult(bitstring, bitstring): bitstring.
+
+(*--Shared key encryption--*)
+fun encrypt(bitstring,key): bitstring.
+reduc forall x: bitstring, y: key;
+decrypt(encrypt(x,y),y) = x.
+
+(*--Type convertion--*)
+fun keytobit(key): bitstring   [data,typeConverter].
+fun nontobit(nonce): bitstring [data,typeConverter].
+fun bittokey(bitstring): key   [data,typeConverter].
+fun inttobit(integer): bitstring [data,typeConverter].
+
+(*--Secrecy assumptions
+not attacker(new KGU).
+not attacker(new KGS).--*)
+
+(*--The basic variables--*)
+free User,GWN,SD: entity. (*---three entities in the proposed scheme--*)
+free DID: bitstring.           (*---the user's pseudonym identity--*)
+free K: key[private].           (*---master secret key of GWN--*)
+free KGU: bitstring[private].  (*--the shared key between user and GWN--*)
+free KGS: bitstring[private].  (*---the shared key between GWN and the smart device--*)
+free P: bitstring.              (*---a generator of an additive group--*)
+free x: bitstring[private].      (*---private key--*)
+free X: bitstring.               (*---public key--*)
+
+
+(*--Authentication queries--*)
+event UGbegin(entity).
+event UGend(entity).
+event GUbegin(entity).
+event GUend(entity).
+event GSbegin(entity).
+event GSend(entity).
+event SGbegin(entity).
+event SGend(entity).
+
+query t: entity; inj-event(UGend(t)) ==> inj-event(UGbegin(t)).
+query t: entity; inj-event(GUend(t)) ==> inj-event(GUbegin(t)).
+query t: entity; inj-event(GSend(t)) ==> inj-event(GSbegin(t)).
+query t: entity; inj-event(SGend(t)) ==> inj-event(SGbegin(t)).
+
+(*--Queries--*)
+free svalueA, svalueB, svalueC, svalueD: bitstring [private].
+query attacker(svalueA);
+      attacker(svalueB);
+      attacker(svalueC);
+      attacker(svalueD).
+
+(*--Role of the User with identity IDi--*)
+let processUser(IDi: bitstring, PWi: bitstring, A1: bitstring, A2: bitstring, A3: bitstring, SDk: bitstring) =
+		let (ai: bitstring)= XOR(A2, Hash(Con(IDi,PWi))) in
+		let (HPWi: bitstring)= Hash(Con(PWi,ai)) in		
+        let xA3 = Hash(Con(IDi,HPWi)) in
+        if xA3 = A3 then
+      
+	      event GUbegin(GWN);
+	      new w: nonce;
+	      new R1: nonce;
+		  let (KGUU: bitstring)= XOR(A1, HPWi) in
+		  let (A4: bitstring)= Mult(nontobit(w), P) in
+		  let (DIDi: bitstring)= XOR(IDi, Mult(nontobit(w), X)) in			  
+	      let (M1: bitstring) = XOR(Con(nontobit(R1),SDk),KGUU) in
+	      let V1 = Hash(Con(Con(Con(IDi,nontobit(R1)),KGUU), M1)) in
+(*UO1*) out(ch1, (DIDi, A4, M1, V1, true));  
+(*UR1*) in(ch1, (M4:bitstring, v4:bitstring));
+  
+	      let (GIDj:bitstring, R2:nonce, R3:nonce) = XOR(M4, KGUU) in
+		  
+		  let xsk: bitstring = Hash(Con(Con(Con(Con(Con(IDi,GIDj),SDk),nontobit(R1)),nontobit(R2)),nontobit(R3))) in
+	      let v4' = Hash(Con(Con(Con(KGUU,xsk),nontobit(R2)),nontobit(R3))) in
+	      if v4' =v4 then
+		  (* OK *)	  		  	
+          event UGend(User);
+	      out(ch1, encrypt(svalueA, bittokey(xsk))).
+		  
+(*--Role of the GWN with shared key KGS--*)
+let processGWN(GIDj: bitstring) =     
+        in(ch1, (DIDi: bitstring, A4:bitstring, M1: bitstring, v1: bitstring));     
+	
+		let (IDi: bitstring)= XOR(DIDi, Mult(x, A4)) in
+		let (KGU': bitstring)= Hash(Con(IDi, keytobit(K))) in		
+        let (R1: nonce,SDk: bitstring) = XOR(M1,KGU') in
+		event UGbegin(User);
+		let (v1': bitstring) = Hash(Con(Con(Con(IDi,nontobit(R1)),KGU'), M1)) in
+		if v1' =v1 then
+	      new R2: nonce;
+	      event SGbegin(SD);
+		  let KGS: bitstring= Hash(Con(SDk, keytobit(K))) in
+	      let M2= XOR(Con(Con(Con(IDi, GIDj), nontobit(R1)),nontobit(R2)),KGS) in
+	      let v2 = Hash(Con(Con(Con(Con(IDi, GIDj), KGS),nontobit(R1)),nontobit(R2))) in
+        out(ch2, (M2, v2, true));
+
+        in(ch2, (M3: bitstring, v3: bitstring)); 
+
+		  let nontobit(R3: nonce) = XOR(M3,KGS) in
+		 
+		  let SK: bitstring = Hash(Con(Con(Con(Con(Con(IDi,GIDj),SDk),nontobit(R1)),nontobit(R2)),nontobit(R3))) in
+	      let v3' = Hash(Con(Con(nontobit(R3), KGS),SK)) in
+	      if v3' = v3 then	  
+	      (* OK *)
+	      event GSend(GWN);
+
+        out(ch2, encrypt(svalueC, bittokey(SK)));
+	      let M4 = XOR(Con(Con(GIDj, nontobit(R2)),nontobit(R3)),KGU') in
+	      let v4 = Hash(Con(Con(Con(KGU',SK),nontobit(R2)),nontobit(R3))) in			  
+        out(ch1, (M4,v4,true));
+
+        event GUend(GWN);
+	    (* OK *)     
+	    out(ch1, encrypt(svalueB, bittokey(SK))).	  
+		
+(*--Role of the smart device with identity SDk and shared key KGS--*)
+let processSD(SDk:bitstring) = 
+        in(ch2, (M2: bitstring, v2:bitstring));    
+        event GSbegin(GWN);
+		new k: integer;
+	      let (IDi: bitstring, GIDj: bitstring, R1:nonce, R2:nonce) = XOR(M2,KGS) in
+	      let v2'=  Hash(Con(Con(Con(Con(IDi, GIDj), KGS),nontobit(R1)),nontobit(R2))) in
+	      if v2'=v2 then
+		  
+		new R3: nonce;
+		let SKK: bitstring = Hash(Con(Con(Con(Con(Con(IDi,GIDj),SDk),nontobit(R1)),nontobit(R2)),nontobit(R3))) in
+		let M3 = XOR(nontobit(R3),KGS) in
+		let v3= Hash(Con(Con(nontobit(R3),KGS),SKK)) in
+        out(ch2, (M3, v3, true)); 
+        event SGend(SD);
+	      (* OK *)
+        out(ch2, encrypt(svalueD, bittokey(SKK))).
+
+(*--Start process--*)
+process
+	new IDi: bitstring; 
+	new PWi: bitstring;
+	new GIDj: bitstring;
+	new SDk: bitstring; 
+	new A1: bitstring;	
+	new A2: bitstring;
+	
+	let ai = XOR(A2, Hash(Con(IDi,PWi))) in  
+	let A3: bitstring = Hash(Con(IDi, Hash(Con(PWi,ai)))) in
+	(
+          (*-- Launch an unbounded number of sessions of the user --*)
+          (!processUser(IDi,PWi,A1,A2,A3,SDk)) | 
+          (*-- Launch an unbounded number of sessions of the GWN--*)
+          (!processGWN(GIDj)) |
+          (*-- Launch an unbounded number of sessions of the SD--*)
+          (!processSD(SDk)) 
+  )

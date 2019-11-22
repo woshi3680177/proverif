@@ -1,0 +1,234 @@
+(*--
+This project contains the implementation details of the proposed scheme in "Authentication scheme for wireless body area networks-based fog-assisted healthcare monitoring system".
+
+Environmental requirements
+Programs can run under Windows, Linux, and Macs. 
+Install Proverif 1.96, download Address: http://proverif.inria.fr/
+No additional libraries are required. 
+ProVerif is a command-line tool which can be executed using the syntax:
+           ./proverif [options] hfilenamei
+
+Programs can also run online for ProVerif.
+Address: http://proverif16.paris.inria.fr/index.php
+Copy your code to the input box and press the execution key to verify the scheme.
+--*)
+
+
+(*--The two public channel--*)
+free ch1: channel.
+free ch2: channel.
+
+(*--The basic type--*)
+type participant.
+type nonce.
+type fingerprint.
+type key.
+type timestamp.
+type integer.
+
+(*--BH operation--*)
+fun BH(bitstring,fingerprint): bitstring.
+
+(*--Hash operation--*) 
+fun Hash(bitstring): bitstring.
+
+(*--XOR operation--*)
+fun XOR(bitstring, bitstring): bitstring.
+equation forall x: bitstring, y: bitstring;
+XOR(XOR(x, y), y) = x.
+
+(*--Concat operation--*)
+fun Con(bitstring, bitstring): bitstring.
+
+(*--Check timestamp Fresh operation--*)
+fun checktimestampfresh(timestamp, bool): bool
+reduc forall T: timestamp;
+checktimestampfresh(T, true) = true
+otherwise forall T: timestamp;
+checktimestampfresh(T, false) = false.
+
+(*--Mod operation--*)
+fun Mod(bitstring, bitstring): bitstring.
+
+(*--Shared key encryption--*)
+fun encrypt(bitstring,key): bitstring.
+reduc forall x: bitstring, y: key;
+decrypt(encrypt(x,y),y) = x.
+
+(*--Type convertion--*)
+fun keytobit(key): bitstring   [data,typeConverter].
+fun nontobit(nonce): bitstring [data,typeConverter].
+fun bittokey(bitstring): key   [data,typeConverter].
+fun timetobit(timestamp): bitstring [data,typeConverter].
+fun inttobit(integer): bitstring [data,typeConverter].
+
+fun addk(integer,integer): integer.
+reduc forall x: integer, k: integer;
+mink(addk(x,k),k) = x.
+
+(*--Secrecy assumptions
+not attacker(new KGU).
+not attacker(new KGS).--*)
+
+(*--The basic variables--*)
+const CVaule: bitstring.
+free user,FS,MD: participant. (*---three participants in the proposed scheme--*)
+free MID: bitstring.           (*---the user's pseudonym identity--*)
+free Bi: bitstring[private].   (*---the shared key between user and FS--*)
+free KGU: bitstring[private].  (*--the shared key between user and FS--*)
+free KGS: bitstring[private].  (*---the shared key between FS and the coordinator--*)
+free NUi: integer.  (*---the serial number---*)
+free NUi0: integer.  (*---the serial number---*)
+free NCk: integer.  (*---the serial number---*)
+free NCk0: integer.  (*---the serial number---*)
+
+(*--Authentication queries--*)
+event UFbegin(participant).
+event UFend(participant).
+event FUbegin(participant).
+event FUend(participant).
+event GMbegin(participant).
+event FMend(participant).
+event MFbegin(participant).
+event MFend(participant).
+
+query x: participant; inj-event(UFend(x)) ==> inj-event(UFbegin(x)).
+query x: participant; inj-event(FUend(x)) ==> inj-event(FUbegin(x)).
+query x: participant; inj-event(FMend(x)) ==> inj-event(GMbegin(x)).
+query x: participant; inj-event(MFend(x)) ==> inj-event(MFbegin(x)).
+
+(*--Queries--*)
+free secnameA, secnameB, secnameC, secnameD: bitstring [private].
+query attacker(secnameA);
+      attacker(secnameB);
+      attacker(secnameC);
+      attacker(secnameD).
+
+(*--Role of the User with identity IDi and shared key Bi, KGU--*)
+
+let processUser(IDi: bitstring, MDk: bitstring, PWi: bitstring, Wi: bitstring, Ci: bitstring, D: bitstring) =
+		let (ai: bitstring)= XOR(Wi, Hash(Con(IDi,PWi))) in
+        let xBi = XOR(Ci, Hash(Con(Con(IDi,PWi),ai))) in
+        if xBi = Bi then
+	      let D' = Hash(Con(xBi, Hash(Con(Con(IDi,PWi),ai)))) in  
+	      if D'=D then
+	      
+	      event FUbegin(FS);
+	      new R1: nonce;
+	      new T1: timestamp;
+	      let MS1 = XOR(Con(nontobit(R1),MDk),Hash(Con(Con(IDi,xBi),KGU))) in
+	      let V1 = Hash(Con(Con(Con(IDi,nontobit(R1)),xBi),timetobit(T1))) in
+	 
+(*UO1*) out(ch1, (MID, MS1, V1, T1, true));  
+(*UR1*) in(ch1, (MS4:bitstring, v4:bitstring, NUi:integer, T4:timestamp, isTrue: bool));
+          if checktimestampfresh(T4, isTrue) then
+		  new R2: nonce;
+		  new R3: nonce;
+		  new k: integer;		  
+	      let (nontobit(R2), nontobit(R3), FIDj:bitstring, MIDNEW:bitstring) = XOR(MS4, Hash(Con(Con(Con(Con(nontobit(R1),MID),xBi),KGU),inttobit(mink(NUi,k))))) in
+		  new xsk: bitstring;
+		  let xsk = Hash(Con(Con(Con(Con(Con(IDi,FIDj),MDk),nontobit(R1)),nontobit(R2)),nontobit(R3))) in
+	      let v4' = Hash(Con(Con(Con(Con(Con(IDi,MIDNEW),xsk),nontobit(R2)),inttobit(mink(NUi,k))),timetobit(T4))) in
+	      if v4' =v4 then
+		  (* OK *)	  
+		  
+    	  let KGU=Hash(KGU) in
+	      let NUi0=NUi in	  
+          let MID=MIDNEW in	
+          event UFend(user);
+	      out(ch1, encrypt(secnameA, bittokey(xsk))).
+
+(*--Role of the FS with shared key Bi, KGU and KGS--*)
+let processFS(IDi: bitstring, FIDj: bitstring, NUi:integer, NCk:integer, MDk: bitstring) =
+       
+        in(ch1, (gMID: bitstring, MS1: bitstring, v1: bitstring, T1:timestamp, isTrue: bool));
+       
+
+        if checktimestampfresh(T1, isTrue) then
+        if gMID = MID then
+		new R1: nonce;
+        let (nontobit(R1),gSN:bitstring) = XOR(MS1,Hash(Con(Con(gMID,Bi),KGU))) in
+        event UFbegin(user);
+        let v1' = Hash(Con(Con(Con(IDi,nontobit(R1)),Bi),timetobit(T1))) in
+        if v1'=v1 && gSN = MDk then
+    
+	      new R2: nonce;
+	      new T2: timestamp;
+		  new k: integer;
+	      event MFbegin(MD);
+	      let MS2= XOR(Con(Con(Con(nontobit(R1),nontobit(R2)),IDi), FIDj),Hash(Con(Con(KGS,MDk),inttobit(NCk)))) in
+	      let v2 = Hash(Con(Con(Con(Con(Con(IDi,nontobit(R1)),nontobit(R2)),KGS),inttobit(NCk)),timetobit(T2))) in
+		  let KGS=Hash(Con(KGS,MDk)) in
+	      let NCk=addk(NCk,k) in
+        out(ch2, (MS2, v2, NCk, T2, true));
+
+        in(ch2, (MS3: bitstring, v3: bitstring, T3: timestamp, isTrue: bool));
+         if checktimestampfresh(T3, isTrue) then
+		 new R3: nonce;
+		  let nontobit(R3) = XOR(MS3,Hash(Con(Con(KGS,MDk),inttobit(NCk)))) in
+		  new SK: bitstring;
+		  let SK = Hash(Con(Con(Con(Con(Con(IDi,FIDj),MDk),nontobit(R1)),nontobit(R2)),nontobit(R3))) in
+	      let v3' = Hash(Con(Con(Con(Con(Con(MDk,IDi),SK),nontobit(R3)),inttobit(NCk)),timetobit(T3))) in
+	      if v3' = v3 then
+	    (*let KGS=Hash(KGS) in*)	  
+	      (* OK *)
+	      event FMend(FS);
+
+        out(ch2, encrypt(secnameC, bittokey(SK)));
+	      new MIDNEW: bitstring;
+	      new T4: timestamp;
+	      let MS4 = XOR(Con(Con(Con(nontobit(R2),nontobit(R3)),FIDj),MIDNEW),Hash(Con(Con(Con(Con(nontobit(R1),MID),Bi),KGU),inttobit(NUi)))) in
+	      let v4 = Hash(Con(Con(Con(Con(Con(IDi,MIDNEW),SK),nontobit(R2)),inttobit(NUi)),timetobit(T4))) in
+	      let KGU=Hash(KGU) in
+          let MID=MIDNEW in	
+          let NUi=addk(NUi,k) in			  
+        out(ch1, (MS4,v4,NUi,T4,true));
+
+        event FUend(FS);
+	    (* OK *)     
+	    out(ch1, encrypt(secnameB, bittokey(SK))).
+	      	    
+(*--Role of the sensor node with identity MDk and shared key KGS--*)
+let processMD(MDk:bitstring) = 
+        in(ch2,  (MS2: bitstring, v2:bitstring, NCk:integer, T2:timestamp, isTrue:bool));
+        if checktimestampfresh(T2, isTrue) then
+        event GMbegin(FS);
+		new k: integer;
+	      let (R1:nonce, R2:nonce, IDi: bitstring, FIDj: bitstring) = XOR(MS2,Hash(Con(Con(KGS,MDk),inttobit(mink(NCk,k))))) in
+	      let v2'=  Hash(Con(Con(Con(Con(Con(IDi,nontobit(R1)),nontobit(R2)),KGS),inttobit(mink(NCk,k))),timetobit(T2))) in
+	      if v2'=v2 then
+		  let KGS=Hash(Con(KGS,MDk)) in
+	      let NCk0=NCk in 
+		new T3: timestamp;
+		new R3: nonce;
+		new SKK: bitstring;
+		let SKK = Hash(Con(Con(Con(Con(Con(IDi,FIDj),MDk),nontobit(R1)),nontobit(R2)),nontobit(R3))) in
+		let MS3 = XOR(nontobit(R3),Hash(Con(Con(KGS,MDk),inttobit(NCk0)))) in
+		let v3= Hash(Con(Con(Con(Con(Con(MDk,IDi),SKK),nontobit(R3)),inttobit(NCk0)),timetobit(T3))) in
+        out(ch2, (MS3, v3, T3, true)); 
+        event MFend(MD);
+	      (* OK *)
+        out(ch2, encrypt(secnameD, bittokey(SKK))).
+
+
+(*--Start process--*)
+process
+	new IDi: bitstring; 
+	new PWi: bitstring;
+	new FIDj: bitstring;
+	new Wi: bitstring;
+	new MDk: bitstring; 
+	new NUi: integer;
+	new NCk: integer;
+ 
+	let ai = XOR(Wi, Hash(Con(IDi,PWi))) in  
+	let Ci = XOR(Bi, Hash(Con(Con(IDi,PWi),ai))) in
+	let D = Hash(Con(Bi, Hash(Con(Con(IDi,PWi),ai)))) in
+	(
+          (*-- Launch an unbounded number of sessions of the user --*)
+          (!processUser(IDi,MDk,PWi,Wi,Ci,D)) | 
+          (*-- Launch an unbounded number of sessions of the FS--*)
+          (!processFS(IDi,FIDj,NUi,NCk,MDk)) |
+          (*-- Launch an unbounded number of sessions of the MD--*)
+          (!processMD(MDk)) 
+  )
