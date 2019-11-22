@@ -1,0 +1,148 @@
+(*--
+This project contains the implementation details of the proposed scheme in "Secure authentication for wireless body area networks-based remote healthcare monitoring system".
+
+Environmental requirements
+Programs can run under Windows, Linux, and Macs. 
+Install Proverif 1.96, download Address: http://proverif.inria.fr/
+No additional libraries are required. 
+ProVerif is a command-line tool which can be executed using the syntax:
+           ./proverif [options] hfilenamei
+
+Programs can also run online for ProVerif.
+Address: http://proverif16.paris.inria.fr/index.php
+Copy your code to the input box and press the execution key to verify the scheme.
+--*)
+
+
+(*--The two public channel--*)
+free ch1: channel.
+
+
+(*--The basic type--*)
+type participant.
+type nonce.
+type fingerprint.
+type key.
+type timestamp.
+type integer.
+
+(*--BH operation--*)
+fun BH(bitstring,fingerprint): bitstring.
+
+(*--Hash operation--*) 
+fun Hash2(bitstring): bitstring.
+fun Hash1(bitstring): integer.
+
+
+(*--XOR operation--*)
+fun XOR(bitstring, bitstring): bitstring.
+equation forall x: bitstring, y: bitstring;
+XOR(XOR(x, y), y) = x.
+
+(*--Concat operation--*)
+fun Con(bitstring, bitstring): bitstring.
+
+(*--Check timestamp Fresh operation--*)
+fun checktimestampfresh(timestamp, bool): bool
+reduc forall T: timestamp;
+checktimestampfresh(T, true) = true
+otherwise forall T: timestamp;
+checktimestampfresh(T, false) = false.
+
+(*--Mod operation--*)
+fun Mod(bitstring, bitstring): bitstring.
+
+(*--Shared key encryption--*)
+fun encrypt(bitstring,key): bitstring.
+reduc forall x: bitstring, y: key;
+decrypt(encrypt(x,y),y) = x.
+
+(*--Type convertion--*)
+fun keytobit(key): bitstring   [data,typeConverter].
+fun nontobit(nonce): bitstring [data,typeConverter].
+fun bittokey(bitstring): key   [data,typeConverter].
+fun timetobit(timestamp): bitstring [data,typeConverter].
+fun inttobit(integer): bitstring [data,typeConverter].
+
+fun addk(integer,integer): integer.
+reduc forall x: integer, k: integer;
+mink(addk(x,k),k) = x.
+
+fun mul(integer,integer):integer
+reduc forall x: integer, k: integer;
+div(addk(x,k),k)=x.
+
+(*--Secrecy assumptions
+not attacker(new TMP).
+--*)
+
+(*--The basic variables--*)
+const CVaule: bitstring.
+free user,GWN,MD: participant. (*---three participants in the proposed scheme--*)
+free MID: bitstring.           (*---the user's pseudonym identity--*)
+free Bi: bitstring[private].   (*---the shared key between user and GWN--*)
+free TMP: bitstring[private].  (*--the shared key between user and GWN--*)
+
+free NUi: integer.  (*---the serial number---*)
+free NUi0: integer.  (*---the serial number---*)
+free NCk: integer.  (*---the serial number---*)
+free NCk0: integer.  (*---the serial number---*)
+
+(*--Authentication queries--*)
+event UGbegin(participant).
+event UGend(participant).
+event GUbegin(participant).
+event GUend(participant).
+event GCbegin(participant).
+event GCend(participant).
+event CGbegin(participant).
+event CGend(participant).
+
+query x: participant; inj-event(UGend(x)) ==> inj-event(UGbegin(x)).
+query x: participant; inj-event(GUend(x)) ==> inj-event(GUbegin(x)).
+query x: participant; inj-event(GCend(x)) ==> inj-event(GCbegin(x)).
+query x: participant; inj-event(CGend(x)) ==> inj-event(CGbegin(x)).
+
+(*--Queries--*)
+free secnameA, secnameB, secnameC, secnameD: bitstring [private].
+query attacker(secnameA);
+      attacker(secnameB);
+      attacker(secnameC);
+      attacker(secnameD).
+
+(*--Role of the User with identity IDi and shared key Bi, KGU--*)
+
+let processUser(IDi: bitstring, FPi: bitstring, PWi: bitstring, Wi: bitstring, r: bitstring, T: bitstring) =
+		let xi=Hash1(IDi,PWi,FPi,r,T) in
+		let Xi=Hash2(IDi,PWi,FPi,r,T) in
+	      
+	      event GUbegin(GWN);
+	      new PA: nonce
+		  new e_a:nonce
+	      new T1: timestamp;
+	      let TID = XOR(IDi,Hash2(Con(T1,TMP)) in
+	      let Ni = XOR(Xi,XOR(e_a,T1)) in
+	 
+(*UO1*) out(ch1, (TID, T1, PA, Ni, true));  
+
+
+(*--Start process--*)
+process
+	new IDi: bitstring; 
+	new PWi: bitstring;
+	new FIDj: bitstring;
+	new Wi: bitstring;
+	new MDk: bitstring; 
+	new NUi: integer;
+	new NCk: integer;
+ 
+	let ai = XOR(Wi, Hash(Con(IDi,PWi))) in  
+	let Ci = XOR(Bi, Hash(Con(Con(IDi,PWi),ai))) in
+	let D = Hash(Con(Bi, Hash(Con(Con(IDi,PWi),ai)))) in
+	(
+          (*-- Launch an unbounded number of sessions of the user --*)
+          (!processUser(IDi,MDk,PWi,Wi,Ci,D)) | 
+          (*-- Launch an unbounded number of sessions of the GWN--*)
+          (!processGWN(IDi,FIDj,NUi,NCk,MDk)) |
+
+  )
